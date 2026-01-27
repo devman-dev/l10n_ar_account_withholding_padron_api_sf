@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_res_company_jurisdiction_padron_api_sf_user,res.company.jurisdiction.padron.api.sf.user,model_res_company_jurisdiction_padron_api_sf,account.group_account_user,1,0,0,0
+access_res_company_jurisdiction_padron_api_sf_manager,res.company.jurisdiction.padron.api.sf.manager,model_res_company_jurisdiction_padron_api_sf,account.group_account_manager,1,1,1,1

@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Vista Tree -->
+    <record id="res_company_jurisdiction_padron_api_sf_view_tree" model="ir.ui.view">
+        <field name="name">res.company.jurisdiction.padron.api.sf.view.tree</field>
+        <field name="model">res.company.jurisdiction.padron.api.sf</field>
+        <field name="arch" type="xml">
+            <tree string="Padrón PARP Santa Fe">
+                <field name="name"/>
+                <field name="jurisdiction_id"/>
+                <field name="company_id"/>
+                <field name="l10n_ar_padron_from_date"/>
+                <field name="l10n_ar_padron_to_date"/>
+                <field name="state" 
+                       widget="badge" 
+                       decoration-success="state == 'done'"
+                       decoration-warning="state == 'processing'"
+                       decoration-danger="state == 'error'"
+                       decoration-info="state == 'draft'"/>
+                <field name="processed_count"/>
+                <field name="total_lines"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Vista Form -->
+    <record id="res_company_jurisdiction_padron_api_sf_view_form" model="ir.ui.view">
+        <field name="name">res.company.jurisdiction.padron.api.sf.view.form</field>
+        <field name="model">res.company.jurisdiction.padron.api.sf</field>
+        <field name="arch" type="xml">
+            <form string="Padrón PARP Santa Fe">
+                <header>
+                    <button name="action_process_padron" 
+                            string="🚀 Procesar Padrón" 
+                            type="object"
+                            class="btn-primary"
+                            attrs="{'invisible': [('state', '=', 'processing')]}"
+                            confirm="¿Está seguro de procesar el padrón? Este proceso puede demorar varios minutos para archivos grandes."/>
+                    <button name="action_apply_default_to_missing" 
+                            string="📋 Aplicar Alícuotas por Defecto"
+                            type="object"
+                            class="btn-secondary"
+                            attrs="{'invisible': [('state', '!=', 'done')]}"
+                            confirm="Esto aplicará alícuotas por defecto (5% ret / 6% per) a todos los partners no incluidos en el padrón. ¿Continuar?"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,processing,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_process_padron" class="oe_stat_button" type="object" icon="fa-users">
+                            <field name="processed_count" widget="statinfo" string="Procesados"/>
+                        </button>
+                    </div>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" placeholder="Ej: Enero 2026"/>
+                        </h1>
+                    </div>
+                    
+                    <group>
+                        <group string="Configuración General">
+                            <field name="company_id"/>
+                            <field name="jurisdiction_id"/>
+                            <field name="file_padron" filename="file_padron_name"/>
+                            <field name="file_padron_name" invisible="1"/>
+                        </group>
+                        <group string="Período de Vigencia">
+                            <field name="l10n_ar_padron_from_date"/>
+                            <field name="l10n_ar_padron_to_date"/>
+                            <field name="total_lines" readonly="1"/>
+                        </group>
+                    </group>
+                    
+                    <group string="Alícuotas por Defecto (Res. 37/2025)" 
+                           help="Para sujetos NO incluidos en el padrón PARP">
+                        <group>
+                            <field name="alicuota_retencion_default"/>
+                            <field name="alicuota_percepcion_default"/>
+                        </group>
+                    </group>
+                    
+                    <group string="Montos Mínimos (Res. 37/2025)">
+                        <group>
+                            <field name="monto_minimo_retencion_general"/>
+                            <field name="monto_minimo_retencion_especial"/>
+                        </group>
+                        <group>
+                            <field name="monto_minimo_percepcion_general"/>
+                            <field name="monto_minimo_percepcion_carnes"/>
+                        </group>
+                    </group>
+                    
+                    <notebook>
+                        <page string="📊 Log de Procesamiento" name="log_process">
+                            <field name="log_process" readonly="1"/>
+                        </page>
+                        <page string="⚠️ No Procesados" name="log_no_process">
+                            <field name="log_no_process" readonly="1"/>
+                        </page>
+                        <page string="📄 Contenido" name="log_content">
+                            <field name="log_content" readonly="1"/>
+                        </page>
+                        <page string="ℹ️ Información" name="info">
+                            <div class="alert alert-info" role="alert">
+                                <h4>Padrón PARP - Santa Fe</h4>
+                                <p>
+                                    Este módulo implementa la gestión del <strong>Padrón de Alícuotas de Retención y Percepción (PARP)</strong>
+                                    de la Provincia de Santa Fe según la <strong>Resolución API SF 37/2025</strong>.
+                                </p>
+                                <hr/>
+                                <h5>Principales características de la Resolución 37/2025:</h5>
+                                <ul>
+                                    <li><strong>Padrón mensual PARP:</strong> Obligatorio para agentes, publicado 5 días hábiles antes de vigencia</li>
+                                    <li><strong>Alícuotas para no incluidos:</strong> 5% retención, 6% percepción</li>
+                                    <li><strong>Montos mínimos actualizados:</strong>
+                                        <ul>
+                                            <li>Retenciones: $650.000 (general) / $180.000 (especiales)</li>
+                                            <li>Percepciones: $360.000 (general) / $650.000 (carnes)</li>
+                                        </ul>
+                                    </li>
+                                    <li><strong>Requisitos para ser agente:</strong> Ingresos > $3.000M en Santa Fe, $3.500M total</li>
+                                    <li><strong>Habitualidad:</strong> 3 operaciones mensuales por más de $30.000</li>
+                                </ul>
+                            </div>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Acción de ventana -->
+    <record id="action_res_company_jurisdiction_padron_api_sf" model="ir.actions.act_window">
+        <field name="name">Padrón PARP Santa Fe</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">res.company.jurisdiction.padron.api.sf</field>
+        <field name="view_mode">tree,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Crear un nuevo padrón PARP de Santa Fe
+            </p>
+            <p>
+                Cargue el archivo del padrón mensual PARP publicado por API Santa Fe
+                para asignar alícuotas de retención y percepción a sus proveedores/clientes.
+            </p>
+        </field>
+    </record>
+
+    <!-- Menú -->
+    <menuitem id="menu_res_company_jurisdiction_padron_api_sf"
+              name="Padrón PARP Santa Fe"
+              action="action_res_company_jurisdiction_padron_api_sf"
+              parent="l10n_ar.menu_afip_config"
+              sequence="998"/>
+
+</odoo>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Herencia de vista form de res.partner para agregar botón de actualización Santa Fe -->
+    <record id="res_partner_view_form_inherit_api_sf" model="ir.ui.view">
+        <field name="name">res.partner.view.form.inherit.api.sf</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="priority">100</field>
+        <field name="arch" type="xml">
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_update_alicuot_api_sf"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-refresh"
+                        attrs="{'invisible': [('vat', '=', False)]}"
+                        help="Actualizar alícuota desde el padrón PARP de Santa Fe">
+                    <span>Actualizar PARP SF</span>
+                </button>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
