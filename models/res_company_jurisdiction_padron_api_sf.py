@@ -212,10 +212,13 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
             _logger.error(f"API SF: Error al descomprimir: {e}")
             return ""
 
-    def _open_file(self):
+    def _open_file(self, init_logs=True):
         """
         Abre y lee el archivo del padrón.
         Retorna lista de líneas del archivo.
+        
+        Args:
+            init_logs: Si es True, inicializa los logs. False para búsquedas individuales.
         
         Soporta formato TXT y ZIP.
         El formato esperado del padrón PARP es CSV con separador ; (punto y coma)
@@ -226,7 +229,8 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
         Nota: El formato exacto puede variar según la publicación oficial de API Santa Fe.
         Este módulo está preparado para adaptarse cuando se publique el formato definitivo.
         """
-        self._init_logs()
+        if init_logs:
+            self._init_logs()
         
         try:
             # Intentar decodificar como texto plano primero
@@ -529,6 +533,10 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
             try:
                 partner_id = data['partner_id']
                 
+                # Log de contenido (primeros registros de cada chunk)
+                if processed < 3:
+                    self.log_content += f"CUIT: {data.get('cuit')} | Per: {data.get('alicuota_percepcion')}% | Ret: {data.get('alicuota_retencion')}%\n"
+                
                 # Buscar alícuota existente
                 existing = self.env['res.partner.arba_alicuot'].search([
                     ('partner_id', '=', partner_id),
@@ -573,12 +581,16 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
             partner: res.partner record
             
         Returns:
-            True si se actualizó, False si no se encontró en el padrón
+            dict con resultado: 'found' si se encontró en padrón, 'default' si se aplicó por defecto, 'exempt' si es exento, False si error
         """
         if not partner.vat:
-            return False
+            return {'status': 'error', 'message': 'Partner sin CUIT'}
+        
+        # Verificar si está exento
+        if partner.l10n_ar_gross_income_type == 'exempt':
+            return {'status': 'exempt', 'message': 'Partner exento de IIBB'}
             
-        lines = self._open_file()
+        lines = self._open_file(init_logs=False)  # No reiniciar logs
         
         for line in lines:
             parsed = self._parse_line(line)
@@ -609,10 +621,14 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
                     })
                     self.env['res.partner.arba_alicuot'].sudo().create(vals)
                 
-                return True
+                return {'status': 'found', 'message': f'Alícuotas del padrón: Per {parsed["alicuota_percepcion"]}% / Ret {parsed["alicuota_retencion"]}%'}
         
-        # No encontrado en el padrón - aplicar alícuota por defecto
-        return self._apply_default_alicuot(partner)
+        # No encontrado en el padrón - aplicar alícuota por defecto si es local o multilateral
+        if partner.l10n_ar_gross_income_type in ['local', 'multilateral']:
+            self._apply_default_alicuot(partner)
+            return {'status': 'default', 'message': f'Alícuotas por defecto aplicadas: Per {self.alicuota_percepcion_default}% / Ret {self.alicuota_retencion_default}%'}
+        
+        return {'status': 'not_found', 'message': 'CUIT no encontrado en padrón y sin tipo de IIBB definido'}
 
     def _apply_default_alicuot(self, partner):
         """
