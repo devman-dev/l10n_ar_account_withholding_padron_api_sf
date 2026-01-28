@@ -308,134 +308,93 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
         """
         Parsea una línea del padrón PARP de Santa Fe.
         
-        IMPORTANTE: El formato exacto del archivo PARP será definido por API Santa Fe.
-        Esta implementación asume un formato similar al de ARBA/AGIP pero puede
-        necesitar ajustes cuando se publique la especificación oficial.
-        
-        Formato esperado tentativo (basado en prácticas comunes):
-        Posición | Campo
-        ---------|------
-        0        | Número de publicación/lote
-        1        | Fecha intermedia (opcional)
-        2        | Fecha desde (DDMMAAAA)
-        3        | Fecha hasta (DDMMAAAA)
-        4        | CUIT (sin guiones)
-        5        | Tipo de contribuyente
-        6        | Marca alta/baja
-        7        | Marca CBU
-        8        | Alícuota Percepción (con coma decimal)
-        9        | Alícuota Retención (con coma decimal)
-        
-        Formato alternativo (más simple):
-        CUIT;ALICUOTA_RETENCION;ALICUOTA_PERCEPCION;FECHA_DESDE;FECHA_HASTA
+        Formato oficial del padrón PARP Santa Fe (separado por espacios):
+        Posición | Campo                    | Ejemplo
+        ---------|--------------------------|------------------
+        0        | Fecha publicación        | 23122025 (DDMMAAAA)
+        1        | Fecha desde              | 01012026 (DDMMAAAA)
+        2        | Fecha hasta              | 31012026 (DDMMAAAA)
+        3        | CUIT                     | 30111111118
+        4        | Tipo contribuyente       | C (Común) / D (?)
+        5        | Marca 1                  | S / N
+        6        | Marca 2                  | S / N
+        7        | Alícuota Percepción      | 3,50
+        8        | Alícuota Retención       | 2,00
+        9        | Código 1                 | 00
+        10       | Código 2                 | 00
+        11+      | Razón Social             | EMPRESA S.A.
         
         Returns:
             dict con los datos parseados o None si hay error
         """
-        if not line or ';' not in line:
+        if not line:
             return None
             
         try:
-            parts = line.split(';')
+            # El formato de Santa Fe usa espacios como separador
+            # Dividir por espacios múltiples
+            parts = line.split()
             
-            # Detectar formato del archivo basado en la cantidad de campos
-            if len(parts) >= 10:
-                # Formato extendido (similar a ARBA/AGIP)
-                return self._parse_extended_format(parts)
-            elif len(parts) >= 5:
-                # Formato simple
-                return self._parse_simple_format(parts)
-            else:
+            # Necesitamos al menos 9 campos (hasta alícuota retención)
+            if len(parts) < 9:
+                _logger.debug(f"API SF: Línea con pocos campos ({len(parts)}): {line[:50]}...")
                 return None
+            
+            # Parsear según el formato oficial de Santa Fe
+            return self._parse_santa_fe_format(parts, line)
                 
         except Exception as e:
-            _logger.debug(f"API SF: Error parseando línea: {line} - {e}")
+            _logger.debug(f"API SF: Error parseando línea: {line[:50]}... - {e}")
             return None
 
-    def _parse_extended_format(self, parts):
+    def _parse_santa_fe_format(self, parts, original_line):
         """
-        Parsea formato extendido del padrón (similar a ARBA/AGIP)
+        Parsea el formato oficial del padrón PARP de Santa Fe.
+        
+        Formato: FECHA_PUB FECHA_DESDE FECHA_HASTA CUIT TIPO M1 M2 ALIC_PER ALIC_RET COD1 COD2 RAZON_SOCIAL
         """
         try:
-            # Índices basados en formato similar a AGIP
-            cuit = parts[4] if len(parts) > 4 else parts[0]
+            # Posición 0: Fecha de publicación (ignoramos)
+            # Posición 1: Fecha desde
+            from_date_str = parts[1]
+            # Posición 2: Fecha hasta
+            to_date_str = parts[2]
+            # Posición 3: CUIT
+            cuit = parts[3]
+            # Posición 4: Tipo contribuyente (C=Común, D=?)
+            # tipo_contribuyente = parts[4]
+            # Posición 5-6: Marcas (S/N)
+            # Posición 7: Alícuota Percepción
+            alicuota_percepcion_str = parts[7]
+            # Posición 8: Alícuota Retención
+            alicuota_retencion_str = parts[8]
             
-            # Intentar extraer fechas
-            from_date = None
-            to_date = None
-            
-            # Buscar fechas en posiciones comunes
-            for i, part in enumerate(parts):
-                if len(part) == 8 and part.isdigit():
-                    try:
-                        parsed_date = datetime.strptime(part, '%d%m%Y').date()
-                        if from_date is None:
-                            from_date = parsed_date
-                        else:
-                            to_date = parsed_date
-                            break
-                    except ValueError:
-                        continue
-            
-            # Usar fechas del padrón si no se encuentran en la línea
-            if from_date is None:
+            # Parsear fechas
+            try:
+                from_date = datetime.strptime(from_date_str, '%d%m%Y').date()
+            except ValueError:
                 from_date = self.l10n_ar_padron_from_date
-            if to_date is None:
+                
+            try:
+                to_date = datetime.strptime(to_date_str, '%d%m%Y').date()
+            except ValueError:
                 to_date = self.l10n_ar_padron_to_date
             
-            # Extraer alícuotas
-            alicuota_percepcion = 0.0
-            alicuota_retencion = 0.0
+            # Parsear alícuotas (formato con coma decimal)
+            try:
+                alicuota_percepcion = float(alicuota_percepcion_str.replace(',', '.'))
+            except (ValueError, AttributeError):
+                alicuota_percepcion = 0.0
+                
+            try:
+                alicuota_retencion = float(alicuota_retencion_str.replace(',', '.'))
+            except (ValueError, AttributeError):
+                alicuota_retencion = 0.0
             
-            # Buscar valores numéricos que parezcan alícuotas
-            for i in range(len(parts) - 1, max(4, len(parts) - 4), -1):
-                try:
-                    value = float(parts[i].replace(',', '.'))
-                    if 0 <= value <= 100:  # Rango válido para alícuotas
-                        if alicuota_retencion == 0.0:
-                            alicuota_retencion = value
-                        elif alicuota_percepcion == 0.0:
-                            alicuota_percepcion = value
-                            break
-                except (ValueError, IndexError):
-                    continue
-            
-            return {
-                'cuit': cuit,
-                'from_date': from_date,
-                'to_date': to_date,
-                'alicuota_percepcion': alicuota_percepcion,
-                'alicuota_retencion': alicuota_retencion,
-            }
-            
-        except Exception as e:
-            _logger.debug(f"API SF: Error en formato extendido: {e}")
-            return None
-
-    def _parse_simple_format(self, parts):
-        """
-        Parsea formato simple del padrón
-        Formato: CUIT;ALICUOTA_RET;ALICUOTA_PER;FECHA_DESDE;FECHA_HASTA
-        """
-        try:
-            cuit = parts[0]
-            alicuota_retencion = float(parts[1].replace(',', '.')) if len(parts) > 1 else 0.0
-            alicuota_percepcion = float(parts[2].replace(',', '.')) if len(parts) > 2 else 0.0
-            
-            from_date = self.l10n_ar_padron_from_date
-            to_date = self.l10n_ar_padron_to_date
-            
-            # Intentar parsear fechas si están presentes
-            if len(parts) > 3:
-                try:
-                    from_date = datetime.strptime(parts[3], '%d%m%Y').date()
-                except ValueError:
-                    pass
-            if len(parts) > 4:
-                try:
-                    to_date = datetime.strptime(parts[4], '%d%m%Y').date()
-                except ValueError:
-                    pass
+            # Validar CUIT (debe tener 11 dígitos)
+            if not cuit or len(cuit) != 11 or not cuit.isdigit():
+                _logger.debug(f"API SF: CUIT inválido: {cuit}")
+                return None
             
             return {
                 'cuit': cuit,
@@ -446,7 +405,7 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
             }
             
         except Exception as e:
-            _logger.debug(f"API SF: Error en formato simple: {e}")
+            _logger.debug(f"API SF: Error en formato Santa Fe: {e}")
             return None
 
     def action_process_padron(self):
@@ -662,7 +621,13 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
         Según Resolución 37/2025:
         - Retención: 5%
         - Percepción: 6%
+        - EXENTOS: No se les aplica (retorna False)
         """
+        # Verificar si el partner está exento de IIBB
+        if partner.l10n_ar_gross_income_type == 'exempt':
+            _logger.info(f"API SF: Partner {partner.vat} es EXENTO de IIBB - no se aplica alícuota")
+            return False
+        
         existing = self.env['res.partner.arba_alicuot'].search([
             ('partner_id', '=', partner.id),
             ('tag_id', '=', self.jurisdiction_id.id),
@@ -690,14 +655,44 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
         
         return True
 
+    def action_view_processed_partners(self):
+        """
+        Abre una vista con los partners que tienen alícuotas asignadas
+        para la jurisdicción de Santa Fe.
+        """
+        self.ensure_one()
+        
+        # Buscar partners con alícuotas para esta jurisdicción
+        alicuotas = self.env['res.partner.arba_alicuot'].search([
+            ('tag_id', '=', self.jurisdiction_id.id),
+            ('company_id', '=', self.company_id.id),
+        ])
+        
+        partner_ids = alicuotas.mapped('partner_id').ids
+        
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Partners con Alícuotas Santa Fe'),
+            'res_model': 'res.partner',
+            'view_mode': 'tree,form',
+            'domain': [('id', 'in', partner_ids)],
+            'context': {'search_default_customer': 0, 'search_default_supplier': 0},
+        }
+
     def action_apply_default_to_missing(self):
         """
-        Aplica alícuotas por defecto a todos los partners que no están 
+        Aplica alícuotas por defecto a los partners de SANTA FE que no están 
         incluidos en el padrón PARP.
         
-        Útil para cumplir con la Resolución 37/2025 que indica:
+        Solo aplica a partners que:
+        - Tienen domicilio en la provincia de Santa Fe (state_id)
+        - NO están exentos de Ingresos Brutos (l10n_ar_gross_income_type != 'exempt')
+        - Son Local o Multilateral en IIBB
+        
+        Según Resolución 37/2025:
         - 5% retención para no incluidos
         - 6% percepción para no incluidos
+        - EXENTOS: No se les aplica retención/percepción
         """
         for rec in self:
             if not rec.file_padron:
@@ -712,10 +707,37 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
                 if parsed:
                     cuits_in_padron.add(parsed['cuit'])
             
-            # Buscar partners no incluidos
-            partners_missing = self.env['res.partner'].search([
+            # Buscar la provincia de Santa Fe
+            santa_fe_state = self.env['res.country.state'].search([
+                ('name', 'ilike', 'Santa Fe'),
+                ('country_id.code', '=', 'AR'),
+            ], limit=1)
+            
+            if not santa_fe_state:
+                raise UserError(_('No se encontró la provincia de Santa Fe en el sistema'))
+            
+            # Buscar partners de Santa Fe no incluidos en el padrón
+            # EXCLUIR EXENTOS - solo aplicar a 'local' o 'multilateral'
+            domain = [
                 ('vat', '!=', False),
                 ('vat', 'not in', list(cuits_in_padron)),
+                # Excluir exentos de IIBB
+                ('l10n_ar_gross_income_type', 'in', ['local', 'multilateral']),
+                '|',
+                ('state_id', '=', santa_fe_state.id),
+                ('state_id.name', 'ilike', 'Santa Fe'),
+            ]
+            
+            partners_missing = self.env['res.partner'].search(domain)
+            
+            # Contar exentos para el log
+            exentos_count = self.env['res.partner'].search_count([
+                ('vat', '!=', False),
+                ('vat', 'not in', list(cuits_in_padron)),
+                ('l10n_ar_gross_income_type', '=', 'exempt'),
+                '|',
+                ('state_id', '=', santa_fe_state.id),
+                ('state_id.name', 'ilike', 'Santa Fe'),
             ])
             
             applied_count = 0
@@ -723,16 +745,17 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
                 if rec._apply_default_alicuot(partner):
                     applied_count += 1
             
-            rec.log_process += f'\n=== ALÍCUOTAS POR DEFECTO ===\n'
-            rec.log_process += f'Partners no incluidos en padrón: {len(partners_missing)}\n'
-            rec.log_process += f'Alícuotas aplicadas: {applied_count}\n'
+            rec.log_process += f'\n=== ALÍCUOTAS POR DEFECTO (SOLO SANTA FE) ===\n'
+            rec.log_process += f'Partners de Santa Fe no incluidos en padrón: {len(partners_missing)}\n'
+            rec.log_process += f'Partners EXENTOS (omitidos): {exentos_count}\n'
+            rec.log_process += f'Alícuotas aplicadas (Local/Multilateral): {applied_count}\n'
             
             return {
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
                 'params': {
                     'title': _('Alícuotas por defecto aplicadas'),
-                    'message': _('Se aplicaron alícuotas por defecto a %d partners') % applied_count,
+                    'message': _('Se aplicaron alícuotas a %d partners de Santa Fe. %d exentos omitidos.') % (applied_count, exentos_count),
                     'type': 'success',
                     'sticky': False,
                 }

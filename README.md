@@ -82,17 +82,33 @@ Desde la ficha de cualquier partner con CUIT:
 
 El módulo soporta dos formatos de archivo:
 
-### Formato Simple
+### Formato Oficial del Padrón PARP Santa Fe
+
+El archivo TXT usa **espacios** como separador de campos:
+
 ```
-CUIT;ALICUOTA_RETENCION;ALICUOTA_PERCEPCION;FECHA_DESDE;FECHA_HASTA
+FECHA_PUB FECHA_DESDE FECHA_HASTA CUIT TIPO M1 M2 ALIC_PER ALIC_RET COD1 COD2 RAZON_SOCIAL
 ```
 
-### Formato Extendido (similar a ARBA/AGIP)
+**Ejemplo:**
 ```
-LOTE;FECHA_INT;FECHA_DESDE;FECHA_HASTA;CUIT;TIPO_CONTRIB;MARCA_ALTA;MARCA_CBU;ALICUOTA_PER;ALICUOTA_RET
+23122025 01012026 31012026 30714295698 C S N 1,50 3,00 00 00 ADHOC S.A.
 ```
 
-**Nota:** El formato exacto será confirmado cuando API Santa Fe publique las especificaciones oficiales del PARP.
+| Campo | Posición | Descripción | Ejemplo |
+|-------|----------|-------------|---------|
+| FECHA_PUB | 0 | Fecha de publicación (DDMMAAAA) | 23122025 |
+| FECHA_DESDE | 1 | Inicio vigencia (DDMMAAAA) | 01012026 |
+| FECHA_HASTA | 2 | Fin vigencia (DDMMAAAA) | 31012026 |
+| CUIT | 3 | CUIT sin guiones (11 dígitos) | 30714295698 |
+| TIPO | 4 | Tipo contribuyente (C=Común) | C |
+| M1 | 5 | Marca 1 (S/N) | S |
+| M2 | 6 | Marca 2 (S/N) | N |
+| ALIC_PER | 7 | Alícuota Percepción (coma decimal) | 1,50 |
+| ALIC_RET | 8 | Alícuota Retención (coma decimal) | 3,00 |
+| COD1 | 9 | Código 1 | 00 |
+| COD2 | 10 | Código 2 | 00 |
+| RAZON_SOCIAL | 11+ | Razón social del contribuyente | ADHOC S.A. |
 
 ## Configuración
 

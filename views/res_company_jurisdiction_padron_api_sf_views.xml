@@ -42,12 +42,12 @@
                             type="object"
                             class="btn-secondary"
                             attrs="{'invisible': [('state', '!=', 'done')]}"
-                            confirm="Esto aplicará alícuotas por defecto (5% ret / 6% per) a todos los partners no incluidos en el padrón. ¿Continuar?"/>
+                            confirm="Esto aplicará alícuotas por defecto (5% ret / 6% per) a los partners de Santa Fe no incluidos en el padrón. ¿Continuar?"/>
                     <field name="state" widget="statusbar" statusbar_visible="draft,processing,done"/>
                 </header>
                 <sheet>
                     <div class="oe_button_box" name="button_box">
-                        <button name="action_process_padron" class="oe_stat_button" type="object" icon="fa-users">
+                        <button name="action_view_processed_partners" class="oe_stat_button" type="object" icon="fa-users">
                             <field name="processed_count" widget="statinfo" string="Procesados"/>
                         </button>
                     </div>
