@@ -137,6 +137,16 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
         string='Total líneas',
         readonly=True,
     )
+    
+    # Campo para guardar IDs de partners procesados en esta ejecución
+    processed_partner_ids = fields.Many2many(
+        'res.partner',
+        'padron_api_sf_processed_partner_rel',
+        'padron_id',
+        'partner_id',
+        string='Partners Procesados',
+        readonly=True,
+    )
 
     @api.constrains('jurisdiction_id')
     def _check_jurisdiction_id(self):
@@ -154,6 +164,7 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
         self.processed_count = 0
         self.total_lines = 0
         self.state = 'processing'
+        self.processed_partner_ids = [(5, 0, 0)]  # Limpiar relación
 
     def _descompress_file(self, file_padron):
         """
@@ -433,15 +444,11 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
             try:
                 rec._process_padron_optimized()
                 return {
-                    'type': 'ir.actions.client',
-                    'tag': 'display_notification',
-                    'params': {
-                        'title': _('Procesamiento completado'),
-                        'message': _('El padrón PARP de Santa Fe ha sido procesado correctamente. '
-                                   'Revise los logs para más detalles.'),
-                        'type': 'success',
-                        'sticky': False,
-                    }
+                    'type': 'ir.actions.act_window',
+                    'res_model': 'res.company.jurisdiction.padron.api.sf',
+                    'res_id': rec.id,
+                    'view_mode': 'form',
+                    'target': 'current',
                 }
             except Exception as e:
                 _logger.error(f"API SF: Error procesando padrón: {str(e)}")
@@ -485,18 +492,29 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
         # Pre-procesar líneas
         valid_data = []
         skipped_lines = 0
+        skipped_cuits = []  # Para el log de no procesados
         
         for line in lines:
             parsed = self._parse_line(line)
-            if parsed and parsed['cuit'] in cuit_to_partner_id:
-                parsed['partner_id'] = cuit_to_partner_id[parsed['cuit']]
-                valid_data.append(parsed)
+            if parsed:
+                if parsed['cuit'] in cuit_to_partner_id:
+                    parsed['partner_id'] = cuit_to_partner_id[parsed['cuit']]
+                    valid_data.append(parsed)
+                else:
+                    skipped_lines += 1
+                    if len(skipped_cuits) < 100:  # Limitar log a 100 CUITs
+                        skipped_cuits.append(parsed['cuit'])
             else:
                 skipped_lines += 1
         
         total_valid = len(valid_data)
         self.log_process += f'Registros con partners existentes: {total_valid}\n'
         self.log_process += f'Registros sin partner (omitidos): {skipped_lines}\n'
+        
+        # Log de CUITs no procesados (primeros 100)
+        if skipped_cuits:
+            self.log_no_process = f'CUITs del padrón sin partner en Odoo (primeros {len(skipped_cuits)}):\n'
+            self.log_no_process += '\n'.join(skipped_cuits)
         
         # Procesar en chunks
         chunk_size = 500
@@ -528,6 +546,7 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
     def _process_chunk(self, chunk):
         """Procesa un chunk de datos del padrón"""
         processed = 0
+        processed_ids = []
         
         for data in chunk:
             try:
@@ -566,10 +585,15 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
                     self.env['res.partner.arba_alicuot'].sudo().create(vals)
                 
                 processed += 1
+                processed_ids.append(partner_id)
                 
             except Exception as e:
-                self.log_no_process += f"Error procesando CUIT {data.get('cuit', 'unknown')}: {e}\n"
+                self.log_no_process += f"\nError procesando CUIT {data.get('cuit', 'unknown')}: {e}"
                 continue
+        
+        # Agregar partners procesados a la relación
+        if processed_ids:
+            self.write({'processed_partner_ids': [(4, pid) for pid in processed_ids]})
         
         return processed
 
@@ -673,18 +697,24 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
 
     def action_view_processed_partners(self):
         """
-        Abre una vista con los partners que tienen alícuotas asignadas
-        para la jurisdicción de Santa Fe.
+        Abre una vista con los partners que fueron procesados en esta ejecución.
         """
         self.ensure_one()
         
-        # Buscar partners con alícuotas para esta jurisdicción
-        alicuotas = self.env['res.partner.arba_alicuot'].search([
-            ('tag_id', '=', self.jurisdiction_id.id),
-            ('company_id', '=', self.company_id.id),
-        ])
+        # Usar los partners procesados guardados en esta ejecución
+        partner_ids = self.processed_partner_ids.ids
         
-        partner_ids = alicuotas.mapped('partner_id').ids
+        if not partner_ids:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _('Sin resultados'),
+                    'message': _('No hay partners procesados en esta ejecución. Ejecute primero el procesamiento del padrón.'),
+                    'type': 'warning',
+                    'sticky': False,
+                }
+            }
         
         return {
             'type': 'ir.actions.act_window',
@@ -766,13 +796,11 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
             rec.log_process += f'Partners EXENTOS (omitidos): {exentos_count}\n'
             rec.log_process += f'Alícuotas aplicadas (Local/Multilateral): {applied_count}\n'
             
+            # Recargar la vista para mostrar datos actualizados
             return {
-                'type': 'ir.actions.client',
-                'tag': 'display_notification',
-                'params': {
-                    'title': _('Alícuotas por defecto aplicadas'),
-                    'message': _('Se aplicaron alícuotas a %d partners de Santa Fe. %d exentos omitidos.') % (applied_count, exentos_count),
-                    'type': 'success',
-                    'sticky': False,
-                }
+                'type': 'ir.actions.act_window',
+                'res_model': 'res.company.jurisdiction.padron.api.sf',
+                'res_id': rec.id,
+                'view_mode': 'form',
+                'target': 'current',
             }
