@@ -13,7 +13,7 @@
                         type="object"
                         class="oe_stat_button"
                         icon="fa-refresh"
-                        attrs="{'invisible': [('vat', '=', False)]}"
+                        invisible="not vat"
                         help="Actualizar alícuota desde el padrón PARP de Santa Fe">
                     <span>Actualizar PARP SF</span>
                 </button>

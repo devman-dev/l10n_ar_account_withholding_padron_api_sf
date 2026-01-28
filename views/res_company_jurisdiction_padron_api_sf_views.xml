@@ -35,13 +35,13 @@
                             string="🚀 Procesar Padrón" 
                             type="object"
                             class="btn-primary"
-                            attrs="{'invisible': [('state', '=', 'processing')]}"
+                            invisible="state == 'processing'"
                             confirm="¿Está seguro de procesar el padrón? Este proceso puede demorar varios minutos para archivos grandes."/>
                     <button name="action_apply_default_to_missing" 
                             string="📋 Aplicar Alícuotas por Defecto"
                             type="object"
                             class="btn-secondary"
-                            attrs="{'invisible': [('state', '!=', 'done')]}"
+                            invisible="state != 'done'"
                             confirm="Esto aplicará alícuotas por defecto (5% ret / 6% per) a los partners de Santa Fe no incluidos en el padrón. ¿Continuar?"/>
                     <field name="state" widget="statusbar" statusbar_visible="draft,processing,done"/>
                 </header>

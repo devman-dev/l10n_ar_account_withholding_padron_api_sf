@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Padrón API Santa Fe - Retenciones y Percepciones IIBB',
-    'version': '16.0.1.0.0',
+    'version': '17.0.1.0.0',
     'description': '''
         Módulo para gestión del Padrón de Alícuotas de Retención y Percepción (PARP)
         de la Provincia de Santa Fe según Resolución API SF 37/2025.
