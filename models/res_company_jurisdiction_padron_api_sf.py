@@ -480,14 +480,24 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
             raise UserError(_('No se pudieron leer líneas del archivo del padrón'))
         
         self.log_process += f'Total de líneas en archivo: {len(lines)}\n'
+        self.log_process += f'Jurisdicción: {self.jurisdiction_id.name} (ID: {self.jurisdiction_id.id})\n'
+        self.log_process += f'Compañía: {self.company_id.name} (ID: {self.company_id.id})\n'
         
         # Pre-cargar todos los CUITs de partners existentes
+        # Usar lista porque puede haber múltiples partners con el mismo CUIT
         _logger.info("API SF: Cargando CUITs existentes en memoria...")
         all_partners = self.env['res.partner'].search([('vat', '!=', False)])
-        cuit_to_partner_id = {p.vat: p.id for p in all_partners}
-        _logger.info(f"API SF: {len(cuit_to_partner_id)} CUITs cargados")
+        cuit_to_partner_ids = {}  # {cuit: [partner_id1, partner_id2, ...]}
+        for p in all_partners:
+            if p.vat not in cuit_to_partner_ids:
+                cuit_to_partner_ids[p.vat] = []
+            cuit_to_partner_ids[p.vat].append(p.id)
         
-        self.log_process += f'Partners con CUIT en sistema: {len(cuit_to_partner_id)}\n'
+        total_partners = sum(len(ids) for ids in cuit_to_partner_ids.values())
+        _logger.info(f"API SF: {len(cuit_to_partner_ids)} CUITs únicos, {total_partners} partners totales")
+        
+        self.log_process += f'CUITs únicos en sistema: {len(cuit_to_partner_ids)}\n'
+        self.log_process += f'Partners con CUIT en sistema: {total_partners}\n'
         
         # Pre-procesar líneas
         valid_data = []
@@ -497,9 +507,12 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
         for line in lines:
             parsed = self._parse_line(line)
             if parsed:
-                if parsed['cuit'] in cuit_to_partner_id:
-                    parsed['partner_id'] = cuit_to_partner_id[parsed['cuit']]
-                    valid_data.append(parsed)
+                if parsed['cuit'] in cuit_to_partner_ids:
+                    # Crear un registro para CADA partner con este CUIT
+                    for partner_id in cuit_to_partner_ids[parsed['cuit']]:
+                        parsed_copy = parsed.copy()
+                        parsed_copy['partner_id'] = partner_id
+                        valid_data.append(parsed_copy)
                 else:
                     skipped_lines += 1
                     if len(skipped_cuits) < 100:  # Limitar log a 100 CUITs
@@ -508,8 +521,8 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
                 skipped_lines += 1
         
         total_valid = len(valid_data)
-        self.log_process += f'Registros con partners existentes: {total_valid}\n'
-        self.log_process += f'Registros sin partner (omitidos): {skipped_lines}\n'
+        self.log_process += f'Registros a procesar (partners): {total_valid}\\n'
+        self.log_process += f'CUITs sin partner en Odoo: {skipped_lines}\\n'
         
         # Log de CUITs no procesados (primeros 100)
         if skipped_cuits:
@@ -547,6 +560,7 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
         """Procesa un chunk de datos del padrón"""
         processed = 0
         processed_ids = []
+        errors_in_chunk = []
         
         for data in chunk:
             try:
@@ -555,6 +569,14 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
                 # Log de contenido (primeros registros de cada chunk)
                 if processed < 3:
                     self.log_content += f"CUIT: {data.get('cuit')} | Per: {data.get('alicuota_percepcion')}% | Ret: {data.get('alicuota_retencion')}%\n"
+                
+                # Validar datos antes de procesar
+                if not self.jurisdiction_id:
+                    errors_in_chunk.append(f"CUIT {data.get('cuit')}: Sin jurisdicción configurada")
+                    continue
+                if not self.company_id:
+                    errors_in_chunk.append(f"CUIT {data.get('cuit')}: Sin compañía configurada")
+                    continue
                 
                 # Buscar alícuota existente
                 existing = self.env['res.partner.arba_alicuot'].search([
@@ -574,6 +596,7 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
                 if existing:
                     # Actualizar existente
                     existing.sudo().write(vals)
+                    _logger.debug(f"API SF: Actualizado CUIT {data.get('cuit')} - Alicuot ID {existing.id}")
                 else:
                     # Crear nuevo
                     vals.update({
@@ -582,14 +605,20 @@ class ResCompanyJurisdictionPadronApiSf(models.Model):
                         'company_id': self.company_id.id,
                         'withholding_amount_type': 'untaxed_amount',
                     })
-                    self.env['res.partner.arba_alicuot'].sudo().create(vals)
+                    new_alicuot = self.env['res.partner.arba_alicuot'].sudo().create(vals)
+                    _logger.debug(f"API SF: Creado CUIT {data.get('cuit')} - Alicuot ID {new_alicuot.id}")
                 
                 processed += 1
                 processed_ids.append(partner_id)
                 
             except Exception as e:
-                self.log_no_process += f"\nError procesando CUIT {data.get('cuit', 'unknown')}: {e}"
+                errors_in_chunk.append(f"CUIT {data.get('cuit', 'unknown')}: {e}")
+                _logger.error(f"API SF Error: CUIT {data.get('cuit')} - {e}")
                 continue
+        
+        # Log de errores del chunk
+        if errors_in_chunk:
+            self.log_no_process += '\n' + '\n'.join(errors_in_chunk)
         
         # Agregar partners procesados a la relación
         if processed_ids:
